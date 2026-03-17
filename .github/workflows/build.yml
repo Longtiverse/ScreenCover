@@ -1,0 +1,126 @@
+name: Build ScreenCover
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Setup CMake
+      uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: '3.28.x'
+        
+    - name: Configure CMake
+      run: cmake -B build -S . -A x64
+      
+    - name: Build Release
+      run: cmake --build build --config Release --parallel
+      
+    - name: Package executable
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "dist"
+        Copy-Item "build\bin\Release\ScreenCover.exe" "dist\ScreenCover.exe"
+        Copy-Item "README.md" "dist\README.md" -ErrorAction SilentlyContinue
+        
+        # 创建默认配置文件
+        @"
+[General]
+DefaultMode=overlay
+RememberLastMode=true
+
+[Hotkeys]
+TriggerKey=6
+
+[ModePowerOff]
+WatchdogInterval=500
+AutoRepowerOff=true
+MaxWakeDuration=1000
+
+[TrayIcon]
+ShowStartupNotification=true
+"@ | Out-File -FilePath "dist\ScreenCover.ini" -Encoding UTF8
+        
+        # 创建启动脚本
+        @"
+@echo off
+chcp 65001 > nul
+echo Starting ScreenCover...
+start ScreenCover.exe
+"@ | Out-File -FilePath "dist\启动ScreenCover.bat" -Encoding UTF8
+        
+        Compress-Archive -Path "dist\*" -DestinationPath "ScreenCover-v2.0.0-Windows-x64.zip"
+        
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ScreenCover-Windows-x64
+        path: |
+          build/bin/Release/ScreenCover.exe
+          README.md
+        retention-days: 30
+        
+    - name: Upload Release Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: ScreenCover-v2.0.0-Release
+        path: ScreenCover-v2.0.0-Windows-x64.zip
+        retention-days: 90
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ScreenCover-v2.0.0-Release
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: ScreenCover-v2.0.0-Windows-x64.zip
+        name: ScreenCover v2.0.0
+        body: |
+          ## ScreenCover v2.0.0 发布
+          
+          ### 功能特性
+          - 🎨 双模式黑屏：软件黑屏（笑脸小狗）+ 硬件断电（不笑小狗）
+          - 🔑 统一热键：按住 Ctrl 连续按 3 次 "6" 键
+          - 🖱️ 托盘切换：右键托盘图标切换模式
+          - 🛡️ Watchdog 保护：硬件模式下自动重新关闭意外唤醒的显示器
+          - 🖥️ 多显示器支持：自动覆盖/控制所有显示器
+          
+          ### 使用方法
+          1. 解压 ScreenCover-v2.0.0-Windows-x64.zip
+          2. 双击 ScreenCover.exe 运行（无界面，后台运行）
+          3. 托盘会出现小狗图标（默认笑脸=软件模式）
+          4. 按 Ctrl+666 触发黑屏
+          5. 右键托盘图标可切换模式
+          
+          ### 退出方式
+          - 软件模式：按 ESC 键
+          - 硬件模式：右键托盘图标 → 恢复显示
+          
+          ### 系统要求
+          - Windows 10 / Windows 11
+          - x64 处理器
+          
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
