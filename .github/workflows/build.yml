@@ -5,7 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -29,48 +29,32 @@ jobs:
     - name: Build Release
       run: cmake --build build --config Release --parallel
       
-    - name: Package executable
-      shell: pwsh
+    - name: Package files
+      shell: cmd
       run: |
-        New-Item -ItemType Directory -Force -Path "dist"
-        Copy-Item "build\bin\Release\ScreenCover.exe" "dist\ScreenCover.exe"
-        Copy-Item "README.md" "dist\README.md" -ErrorAction SilentlyContinue
-        
-        # 创建默认配置文件
-        @"
-[General]
-DefaultMode=overlay
-RememberLastMode=true
-
-[Hotkeys]
-TriggerKey=6
-
-[ModePowerOff]
-WatchdogInterval=500
-AutoRepowerOff=true
-MaxWakeDuration=1000
-
-[TrayIcon]
-ShowStartupNotification=true
-"@ | Out-File -FilePath "dist\ScreenCover.ini" -Encoding UTF8
-        
-        # 创建启动脚本
-        @"
-@echo off
-chcp 65001 > nul
-echo Starting ScreenCover...
-start ScreenCover.exe
-"@ | Out-File -FilePath "dist\启动ScreenCover.bat" -Encoding UTF8
-        
-        Compress-Archive -Path "dist\*" -DestinationPath "ScreenCover-v2.0.0-Windows-x64.zip"
-        
+        mkdir dist
+        copy build\bin\Release\ScreenCover.exe dist\
+        copy README.md dist\
+        (
+          echo [General]
+          echo DefaultMode=overlay
+          echo RememberLastMode=true
+          echo.
+          echo [Hotkeys]
+          echo TriggerKey=6
+          echo.
+          echo [ModePowerOff]
+          echo WatchdogInterval=500
+          echo AutoRepowerOff=true
+          echo MaxWakeDuration=1000
+        ) > dist\ScreenCover.ini
+        powershell Compress-Archive -Path "dist\*" -DestinationPath "ScreenCover-v2.0.0-Windows-x64.zip"
+      
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: ScreenCover-Windows-x64
-        path: |
-          build/bin/Release/ScreenCover.exe
-          README.md
+        path: build/bin/Release/ScreenCover.exe
         retention-days: 30
         
     - name: Upload Release Package
@@ -98,29 +82,20 @@ start ScreenCover.exe
         files: ScreenCover-v2.0.0-Windows-x64.zip
         name: ScreenCover v2.0.0
         body: |
-          ## ScreenCover v2.0.0 发布
+          ## ScreenCover v2.0.0
           
-          ### 功能特性
-          - 🎨 双模式黑屏：软件黑屏（笑脸小狗）+ 硬件断电（不笑小狗）
-          - 🔑 统一热键：按住 Ctrl 连续按 3 次 "6" 键
-          - 🖱️ 托盘切换：右键托盘图标切换模式
-          - 🛡️ Watchdog 保护：硬件模式下自动重新关闭意外唤醒的显示器
-          - 🖥️ 多显示器支持：自动覆盖/控制所有显示器
+          ### Features
+          - Dual mode: Software overlay (smile dog) + Hardware power off (neutral dog)
+          - Hotkey: Ctrl + 666
+          - System tray icon switch
+          - Watchdog protection for hardware mode
+          - Multi-monitor support
           
-          ### 使用方法
-          1. 解压 ScreenCover-v2.0.0-Windows-x64.zip
-          2. 双击 ScreenCover.exe 运行（无界面，后台运行）
-          3. 托盘会出现小狗图标（默认笑脸=软件模式）
-          4. 按 Ctrl+666 触发黑屏
-          5. 右键托盘图标可切换模式
-          
-          ### 退出方式
-          - 软件模式：按 ESC 键
-          - 硬件模式：右键托盘图标 → 恢复显示
-          
-          ### 系统要求
-          - Windows 10 / Windows 11
-          - x64 处理器
+          ### Usage
+          1. Extract ZIP file
+          2. Run ScreenCover.exe
+          3. Press Ctrl+666 to trigger blackout
+          4. Right-click tray icon to switch modes
           
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
