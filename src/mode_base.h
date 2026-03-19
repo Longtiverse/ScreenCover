@@ -30,9 +30,6 @@ public:
     
     // 获取模式类型
     virtual BlackoutModeType GetType() const = 0;
-    
-    // 获取托盘图标资源ID（像素小狗）
-    virtual UINT GetTrayIconId() const = 0;
 };
 
 } // namespace screencover

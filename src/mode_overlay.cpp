@@ -18,25 +18,25 @@ bool ModeOverlay::Enter() {
         return false;
     }
     
-    if (!overlay_>IsInitialized()) {
-        if (!overlay_>Initialize()) {
+    if (!overlay_->IsInitialized()) {
+        if (!overlay_->Initialize()) {
             return false;
         }
     }
     
-    overlay_>ShowOverlay();
+    overlay_->ShowOverlay();
     return true;
 }
 
 bool ModeOverlay::Exit() {
     if (overlay_) {
-        overlay_>HideOverlay();
+        overlay_->HideOverlay();
     }
     return true;
 }
 
 bool ModeOverlay::IsActive() const {
-    return overlay_ && overlay_>IsVisible();
+    return overlay_ && overlay_->IsVisible();
 }
 
 std::wstring ModeOverlay::GetName() const {
@@ -45,10 +45,6 @@ std::wstring ModeOverlay::GetName() const {
 
 BlackoutModeType ModeOverlay::GetType() const {
     return BlackoutModeType::OVERLAY;
-}
-
-UINT ModeOverlay::GetTrayIconId() const {
-    return 1;  // 笑脸小狗图标资源ID
 }
 
 } // namespace screencover

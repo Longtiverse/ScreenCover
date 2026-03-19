@@ -35,30 +35,29 @@ bool Application::Initialize() {
     
     // 初始化序列检测器
     detector_ = std::make_unique<SequenceDetector>(500);
-    if (!detector_>Initialize()) {
+    if (!detector_->Initialize()) {
         return false;
     }
     
-    detector_>SetCallback([this]() {
+    detector_->SetCallback([this]() {
         OnSequenceTriggered();
     });
     
     // 初始化托盘图标
     trayIcon_ = std::make_unique<TrayIconManager>();
     
-    // 使用临时图标资源ID
-    // 实际项目中需要创建笑脸小狗(1)和不笑小狗(2)的图标资源
-    UINT iconId = currentMode_>GetTrayIconId();
-    if (!trayIcon_>Initialize(hwnd_, iconId, L"ScreenCover - 软件黑屏模式")) {
+    // 使用动态创建的图标
+    bool isSmileMode = (currentMode_->GetType() == BlackoutModeType::OVERLAY);
+    if (!trayIcon_->Initialize(hwnd_, isSmileMode, L"ScreenCover - 软件黑屏模式")) {
         // 托盘初始化失败不是致命的
     }
     
-    trayIcon_>SetMenuCallback([this](int cmd) {
+    trayIcon_->SetMenuCallback([this](int cmd) {
         HandleMenuCommand(cmd);
     });
     
     // 显示启动通知
-    trayIcon_>ShowBalloon(
+    trayIcon_->ShowBalloon(
         L"ScreenCover 已启动",
         L"当前模式: 软件黑屏\n热键: 按住 Ctrl 按 3 次 6\n右键图标切换模式",
         5000
@@ -78,7 +77,7 @@ void Application::Run() {
             }
             
             // 检查是否是托盘消息
-            if (trayIcon_ && trayIcon_>HandleMessage(msg.message, msg.wParam, msg.lParam)) {
+            if (trayIcon_ && trayIcon_->HandleMessage(msg.message, msg.wParam, msg.lParam)) {
                 continue;
             }
             
@@ -94,7 +93,7 @@ void Application::Run() {
 void Application::Shutdown() {
     // 先退出黑屏状态
     if (isBlackoutActive_ && currentMode_) {
-        currentMode_>Exit();
+        currentMode_->Exit();
     }
     
     // 清理资源
@@ -119,22 +118,23 @@ void Application::ToggleBlackout() {
     
     if (isBlackoutActive_) {
         // 退出黑屏
-        currentMode_>Exit();
+        currentMode_->Exit();
         isBlackoutActive_ = false;
         
         // 恢复托盘图标
-        trayIcon_>UpdateIcon(currentMode_>GetTrayIconId());
-        trayIcon_>UpdateTooltip(
-            std::wstring(L"ScreenCover - ") + currentMode_>GetName() + L" - 监控中"
+        bool isSmileMode = (currentMode_->GetType() == BlackoutModeType::OVERLAY);
+        trayIcon_->UpdateIcon(isSmileMode);
+        trayIcon_->UpdateTooltip(
+            std::wstring(L"ScreenCover - ") + currentMode_->GetName() + L" - 监控中"
         );
     } else {
         // 进入黑屏
-        if (currentMode_>Enter()) {
+        if (currentMode_->Enter()) {
             isBlackoutActive_ = true;
             
             // 更新托盘图标为黑屏状态（可以使用同一个图标或特殊图标）
-            trayIcon_>UpdateTooltip(
-                std::wstring(L"ScreenCover - ") + currentMode_>GetName() + L" - 黑屏中"
+            trayIcon_->UpdateTooltip(
+                std::wstring(L"ScreenCover - ") + currentMode_->GetName() + L" - 黑屏中"
             );
         }
     }
@@ -155,14 +155,15 @@ void Application::SwitchMode() {
     
     // 更新托盘图标
     if (trayIcon_) {
-        trayIcon_>UpdateIcon(currentMode_>GetTrayIconId());
-        trayIcon_>UpdateTooltip(
-            std::wstring(L"ScreenCover - ") + currentMode_>GetName() + L" - 监控中"
+        bool isSmileMode = (currentMode_->GetType() == BlackoutModeType::OVERLAY);
+        trayIcon_->UpdateIcon(isSmileMode);
+        trayIcon_->UpdateTooltip(
+            std::wstring(L"ScreenCover - ") + currentMode_->GetName() + L" - 监控中"
         );
         
         // 显示模式切换通知
-        std::wstring msg = L"已切换到: " + currentMode_>GetName();
-        trayIcon_>ShowBalloon(L"模式切换", msg.c_str(), 3000);
+        std::wstring msg = L"已切换到: " + currentMode_->GetName();
+        trayIcon_->ShowBalloon(L"模式切换", msg.c_str(), 3000);
     }
 }
 
@@ -182,11 +183,6 @@ void Application::HandleMenuCommand(int cmd) {
     switch (cmd) {
         case TrayIconManager::MENU_SWITCH_MODE:
             SwitchMode();
-            break;
-            
-        case TrayIconManager::MENU_SETTINGS:
-            // TODO: 打开设置对话框
-            MessageBoxW(hwnd_, L"设置功能开发中...", L"ScreenCover", MB_OK);
             break;
             
         case TrayIconManager::MENU_EXIT:

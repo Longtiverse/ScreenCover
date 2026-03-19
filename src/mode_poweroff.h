@@ -17,7 +17,6 @@ public:
     bool IsActive() const override;
     std::wstring GetName() const override;
     BlackoutModeType GetType() const override;
-    UINT GetTrayIconId() const override;
     
     // 设置是否启用 Watchdog
     void SetWatchdogEnabled(bool enabled);

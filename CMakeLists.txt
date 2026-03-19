@@ -12,14 +12,23 @@ endif()
 # Source files
 set(SOURCES
     src/main.cpp
+    src/application.cpp
     src/sequence_detector.cpp
     src/overlay_manager.cpp
+    src/mode_overlay.cpp
+    src/mode_poweroff.cpp
+    src/tray_icon.cpp
 )
 
 # Header files
 set(HEADERS
+    src/application.h
+    src/mode_base.h
+    src/mode_overlay.h
+    src/mode_poweroff.h
     src/sequence_detector.h
     src/overlay_manager.h
+    src/tray_icon.h
 )
 
 # Create executable

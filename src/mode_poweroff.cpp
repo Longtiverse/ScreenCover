@@ -78,10 +78,6 @@ BlackoutModeType ModePowerOff::GetType() const {
     return BlackoutModeType::POWEROFF;
 }
 
-UINT ModePowerOff::GetTrayIconId() const {
-    return 2;  // 不笑小狗图标资源ID
-}
-
 void ModePowerOff::SetWatchdogEnabled(bool enabled) {
     watchdogEnabled_ = enabled;
 }

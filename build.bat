@@ -6,7 +6,10 @@ echo ==========================================
 echo.
 
 REM 检查 Visual Studio 2022
-set "VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Community"
+set "VS_PATH=D:\Program Files\Microsoft Visual Studio\2022\Professional"
+if not exist "%VS_PATH%" (
+    set "VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Community"
+)
 if not exist "%VS_PATH%" (
     set "VS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Professional"
 )

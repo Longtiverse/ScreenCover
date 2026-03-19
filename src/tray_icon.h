@@ -16,15 +16,15 @@ public:
     
     // 初始化托盘图标
     // hwnd: 主窗口句柄（用于接收托盘消息）
-    // iconResId: 图标资源ID
+    // smile: true=笑脸, false=不笑
     // tooltip: 鼠标悬停提示文本
-    bool Initialize(HWND hwnd, UINT iconResId, const std::wstring& tooltip);
+    bool Initialize(HWND hwnd, bool smile, const std::wstring& tooltip);
     
     // 关闭托盘图标
     void Shutdown();
     
     // 更新图标
-    bool UpdateIcon(UINT iconResId);
+    bool UpdateIcon(bool smile);
     
     // 更新提示文本
     bool UpdateTooltip(const std::wstring& tooltip);
@@ -47,17 +47,20 @@ public:
     
     // 菜单项ID定义
     static constexpr int MENU_SWITCH_MODE = 1001;
-    static constexpr int MENU_SETTINGS = 1002;
+    static constexpr int MENU_SEPARATOR = 1002;
     static constexpr int MENU_EXIT = 1003;
     
 private:
+    // 创建像素小狗图标
+    static HICON CreateDogIcon(bool smile);
+    
     // 添加菜单项
     void AddMenuItem(HMENU menu, int id, const std::wstring& text, bool checked = false);
     
 private:
     bool initialized_;
     HWND hwnd_;
-    UINT iconId_;
+    HICON hIcon_;
     UINT trayMessage_;
     NOTIFYICONDATAW nid_;
     MenuCallback menuCallback_;
