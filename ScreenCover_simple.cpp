@@ -557,8 +557,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
         case WM_TRAY:
             if (lParam == WM_LBUTTONUP) {
-                // 单击切换黑屏
-                ToggleBlackout();
+                // 左键单击切换模式
+                g_config.hardwareMode = !g_config.hardwareMode;
+                SaveConfig();
+                // 更新图标和提示
+                NOTIFYICONDATA nid = {0};
+                nid.cbSize = sizeof(nid);
+                nid.hWnd = hwnd;
+                nid.uID = 1;
+                nid.uFlags = NIF_ICON | NIF_TIP;
+                nid.hIcon = g_config.hardwareMode ? g_icon2 : g_icon1;
+                wcscpy_s(nid.szTip, g_config.hardwareMode ? L"ScreenCover - 硬件断电模式" : L"ScreenCover - 软件黑屏模式");
+                Shell_NotifyIcon(NIM_MODIFY, &nid);
             } else if (lParam == WM_RBUTTONUP) {
                 ShowTrayMenu();
             }
