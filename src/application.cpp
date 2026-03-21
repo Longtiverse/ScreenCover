@@ -30,6 +30,11 @@ bool Application::Initialize() {
     modeOverlay_ = std::make_unique<ModeOverlay>();
     modePowerOff_ = std::make_unique<ModePowerOff>();
     
+    // 设置软件黑屏模式的 ESC 退出回调
+    modeOverlay_->SetExitCallback([this]() {
+        OnBlackoutExited();
+    });
+    
     // 默认使用软件模式（笑脸小狗）
     currentMode_ = modeOverlay_.get();
     
@@ -39,6 +44,7 @@ bool Application::Initialize() {
         return false;
     }
     
+    // 设置回调：使用 PostMessage 避免在钩子回调中阻塞
     detector_->SetCallback([this]() {
         OnSequenceTriggered();
     });
@@ -69,24 +75,21 @@ bool Application::Initialize() {
 void Application::Run() {
     MSG msg;
     while (running_) {
-        // 使用PeekMessage以便及时处理消息
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) {
-                running_ = false;
-                break;
-            }
-            
-            // 检查是否是托盘消息
-            if (trayIcon_ && trayIcon_->HandleMessage(msg.message, msg.wParam, msg.lParam)) {
-                continue;
-            }
-            
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        // 使用 GetMessage 等待消息（更高效）
+        BOOL ret = GetMessageW(&msg, nullptr, 0, 0);
+        if (ret == 0 || ret == -1) {
+            // WM_QUIT 或错误
+            running_ = false;
+            break;
         }
         
-        // 短暂休眠以减少CPU占用
-        Sleep(10);
+        // 检查是否是托盘消息
+        if (trayIcon_ && trayIcon_->HandleMessage(msg.message, msg.wParam, msg.lParam)) {
+            continue;
+        }
+        
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
     }
 }
 
@@ -132,12 +135,24 @@ void Application::ToggleBlackout() {
         if (currentMode_->Enter()) {
             isBlackoutActive_ = true;
             
-            // 更新托盘图标为黑屏状态（可以使用同一个图标或特殊图标）
+            // 更新托盘提示
             trayIcon_->UpdateTooltip(
                 std::wstring(L"ScreenCover - ") + currentMode_->GetName() + L" - 黑屏中"
             );
         }
     }
+}
+
+void Application::OnBlackoutExited() {
+    // 外部（如 ESC 键）退出黑屏时调用
+    isBlackoutActive_ = false;
+    
+    // 更新托盘图标
+    bool isSmileMode = (currentMode_->GetType() == BlackoutModeType::OVERLAY);
+    trayIcon_->UpdateIcon(isSmileMode);
+    trayIcon_->UpdateTooltip(
+        std::wstring(L"ScreenCover - ") + currentMode_->GetName() + L" - 监控中"
+    );
 }
 
 void Application::SwitchMode() {
@@ -175,10 +190,6 @@ bool Application::IsBlackoutActive() const {
     return isBlackoutActive_;
 }
 
-void Application::HandleTrayMessage(WPARAM wParam, LPARAM lParam) {
-    // 托盘消息由 TrayIconManager 处理
-}
-
 void Application::HandleMenuCommand(int cmd) {
     switch (cmd) {
         case TrayIconManager::MENU_SWITCH_MODE:
@@ -187,12 +198,16 @@ void Application::HandleMenuCommand(int cmd) {
             
         case TrayIconManager::MENU_EXIT:
             running_ = false;
+            PostQuitMessage(0);
             break;
     }
 }
 
 void Application::OnSequenceTriggered() {
-    ToggleBlackout();
+    // 使用 PostMessage 发送到主窗口，避免在钩子回调中阻塞
+    if (hwnd_) {
+        PostMessageW(hwnd_, WM_SC_TOGGLE_BLACKOUT, 0, 0);
+    }
 }
 
 bool Application::CreateMessageWindow() {
@@ -235,6 +250,20 @@ LRESULT CALLBACK Application::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     );
     
     switch (msg) {
+        case WM_SC_TOGGLE_BLACKOUT:
+            // 处理黑屏切换消息
+            if (app) {
+                app->ToggleBlackout();
+            }
+            return 0;
+            
+        case WM_SC_EXIT_BLACKOUT:
+            // 处理退出黑屏消息
+            if (app && app->isBlackoutActive_) {
+                app->OnBlackoutExited();
+            }
+            return 0;
+            
         case WM_DESTROY:
             PostQuitMessage(0);
             return 0;

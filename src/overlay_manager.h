@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <vector>
 #include <memory>
+#include <functional>
 
 namespace screencover {
 
@@ -18,6 +19,8 @@ struct OverlayWindow {
 
 class OverlayManager {
 public:
+    using EscapeCallback = std::function<void()>;
+    
     OverlayManager();
     ~OverlayManager();
     
@@ -43,8 +46,14 @@ public:
     // 检查是否正在显示
     bool IsVisible() const { return isVisible_; }
     
+    // 检查是否已初始化
+    bool IsInitialized() const { return classRegistered_; }
+    
     // 处理ESC键（可由外部调用）
     void HandleEscape();
+    
+    // 设置 ESC 退出回调
+    void SetEscapeCallback(EscapeCallback callback);
     
     // 获取覆盖窗口数量
     size_t GetWindowCount() const { return windows_.size(); }
@@ -76,6 +85,7 @@ private:
     std::vector<OverlayWindow> windows_;
     bool isVisible_;
     bool classRegistered_;
+    EscapeCallback escapeCallback_;
     static constexpr const wchar_t* CLASS_NAME = L"ScreenCoverOverlayClass";
     
     // 单例指针

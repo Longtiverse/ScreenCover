@@ -190,6 +190,14 @@ void OverlayManager::ToggleOverlay() {
 
 void OverlayManager::HandleEscape() {
     HideOverlay();
+    // 调用退出回调通知 Application
+    if (escapeCallback_) {
+        escapeCallback_();
+    }
+}
+
+void OverlayManager::SetEscapeCallback(EscapeCallback callback) {
+    escapeCallback_ = callback;
 }
 
 LRESULT CALLBACK OverlayManager::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {

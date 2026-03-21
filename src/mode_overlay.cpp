@@ -47,4 +47,12 @@ BlackoutModeType ModeOverlay::GetType() const {
     return BlackoutModeType::OVERLAY;
 }
 
+void ModeOverlay::SetExitCallback(ExitCallback callback) {
+    exitCallback_ = callback;
+    // 设置 OverlayManager 的退出回调
+    if (overlay_) {
+        overlay_->SetEscapeCallback(callback);
+    }
+}
+
 } // namespace screencover

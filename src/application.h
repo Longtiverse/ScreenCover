@@ -9,6 +9,10 @@
 
 namespace screencover {
 
+// 自定义消息常量
+#define WM_SC_TOGGLE_BLACKOUT (WM_USER + 1)
+#define WM_SC_EXIT_BLACKOUT   (WM_USER + 2)
+
 // 应用程序主控制器
 class Application {
 public:
@@ -31,6 +35,9 @@ public:
     // 切换黑屏模式
     void ToggleBlackout();
     
+    // 退出黑屏（供外部回调）
+    void OnBlackoutExited();
+    
     // 切换工作模式（软件/硬件）
     void SwitchMode();
     
@@ -40,11 +47,8 @@ public:
     // 是否处于黑屏状态
     bool IsBlackoutActive() const;
     
-    // 消息循环处理
-    void ProcessMessages();
-    
-    // 托盘消息处理
-    void HandleTrayMessage(WPARAM wParam, LPARAM lParam);
+    // 获取窗口句柄（用于发送消息）
+    HWND GetHwnd() const { return hwnd_; }
     
     // 菜单处理
     void HandleMenuCommand(int cmd);
@@ -58,12 +62,6 @@ private:
     
     // 序列触发回调
     void OnSequenceTriggered();
-    
-    // 更新托盘提示
-    void UpdateTrayTooltip();
-    
-    // 显示上下文菜单
-    void ShowContextMenu();
     
 private:
     HWND hwnd_;
