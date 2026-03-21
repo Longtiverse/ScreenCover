@@ -76,9 +76,43 @@ void GetKeyName(UINT vk, UINT mod, LPWSTR buf, int bufSize) {
 }
 
 // ==================== 输入拦截钩子 ====================
+BOOL IsHotkeyCombo(UINT vk, UINT mod) {
+    // 检查修饰键状态
+    BOOL ctrlNeeded = (mod & MOD_CONTROL) != 0;
+    BOOL shiftNeeded = (mod & MOD_SHIFT) != 0;
+    BOOL altNeeded = (mod & MOD_ALT) != 0;
+    BOOL winNeeded = (mod & MOD_WIN) != 0;
+    
+    BOOL ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    BOOL shiftPressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    BOOL altPressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    BOOL winPressed = (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
+    
+    // 检查是否匹配
+    if (ctrlNeeded != ctrlPressed) return FALSE;
+    if (shiftNeeded != shiftPressed) return FALSE;
+    if (altNeeded != altPressed) return FALSE;
+    if (winNeeded != winPressed) return FALSE;
+    
+    return TRUE;
+}
+
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && g_isLocked) {
-        return 1;  // 吞掉所有键盘输入
+        KBDLLHOOKSTRUCT* kb = (KBDLLHOOKSTRUCT*)lParam;
+        
+        // 检查是否是黑屏热键 - 如果是则放行
+        if (kb->vkCode == g_config.blackoutVk && IsHotkeyCombo(kb->vkCode, g_config.blackoutMod)) {
+            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+        }
+        
+        // 检查是否是锁定热键 - 如果是则放行
+        if (kb->vkCode == g_config.lockVk && IsHotkeyCombo(kb->vkCode, g_config.lockMod)) {
+            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+        }
+        
+        // 其他按键全部拦截
+        return 1;
     }
     return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
 }
