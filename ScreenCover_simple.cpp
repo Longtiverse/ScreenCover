@@ -13,6 +13,7 @@ BOOL g_isBlackout = FALSE;
 BOOL g_isHardwareMode = FALSE; // FALSE=软件模式, TRUE=硬件模式
 HICON g_icon1 = NULL; // 笑脸
 HICON g_icon2 = NULL; // 不笑
+BOOL g_overlayClassRegistered = FALSE;
 
 // 创建像素图标
 HICON CreateDogIcon(BOOL smile) {
@@ -89,21 +90,38 @@ HICON CreateDogIcon(BOOL smile) {
 
 // 覆盖窗口过程
 LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_KEYDOWN && wParam == VK_ESCAPE) {
-        PostMessage(g_hwnd, WM_APP, 0, 0); // 通知主窗口退出
-        return 0;
+    switch (msg) {
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+            // ESC 退出软件黑屏，硬件模式下任意键退出
+            if (wParam == VK_ESCAPE || g_isHardwareMode) {
+                PostMessage(g_hwnd, WM_APP, 0, 0);
+                return 0;
+            }
+            break;
+            
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+            // 鼠标点击不响应，保持黑屏
+            return 0;
     }
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 // 创建覆盖窗口
 void CreateCoverWindow() {
-    WNDCLASS wc = {0};
-    wc.lpfnWndProc = CoverWndProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = L"ScreenCoverOverlay";
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    RegisterClass(&wc);
+    // 只注册一次窗口类
+    if (!g_overlayClassRegistered) {
+        WNDCLASS wc = {0};
+        wc.lpfnWndProc = CoverWndProc;
+        wc.hInstance = GetModuleHandle(NULL);
+        wc.lpszClassName = L"ScreenCoverOverlay";
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        if (!RegisterClass(&wc)) {
+            // 类可能已注册，忽略错误
+        }
+        g_overlayClassRegistered = TRUE;
+    }
     
     int w = GetSystemMetrics(SM_CXSCREEN);
     int h = GetSystemMetrics(SM_CYSCREEN);
@@ -114,7 +132,7 @@ void CreateCoverWindow() {
         L"ScreenCover",
         WS_POPUP | WS_VISIBLE,
         0, 0, w, h,
-        NULL, NULL, wc.hInstance, NULL
+        NULL, NULL, GetModuleHandle(NULL), NULL
     );
 }
 
@@ -199,7 +217,10 @@ void SwitchMode() {
 // 显示托盘菜单
 void ShowTrayMenu() {
     HMENU menu = CreatePopupMenu();
-    AppendMenu(menu, MF_STRING, 1, L"切换模式");
+    
+    // 显示当前模式
+    LPCWSTR modeText = g_isHardwareMode ? L"切换到: 软件黑屏模式" : L"切换到: 硬件断电模式";
+    AppendMenu(menu, MF_STRING, 1, modeText);
     AppendMenu(menu, MF_SEPARATOR, 0, NULL);
     AppendMenu(menu, MF_STRING, 2, L"退出");
     
@@ -279,11 +300,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
-    // 检查单实例
+    // 检查单实例（静默退出）
     HANDLE mutex = CreateMutex(NULL, TRUE, L"ScreenCover_Mutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        MessageBox(NULL, L"ScreenCover 已经在运行！", L"ScreenCover", MB_OK);
-        return 1;
+        return 0;  // 已有实例运行，静默退出
     }
     
     // 注册窗口类
