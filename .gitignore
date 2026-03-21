@@ -1,0 +1,40 @@
+# Build output
+*.exe
+*.obj
+*.o
+*.lib
+*.a
+*.dll
+build/
+dist/
+cmake/
+cmake.zip
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# Python (if any)
+__pycache__/
+*.pyc
+*.pyo
+*.spec
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.log
+error.txt
+nul
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Installer
+vs_buildtools.exe
+mingw-install.exe

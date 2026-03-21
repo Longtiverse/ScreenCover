@@ -49,6 +49,9 @@ public:
     static constexpr int MENU_SWITCH_MODE = 1001;
     static constexpr int MENU_SEPARATOR = 1002;
     static constexpr int MENU_EXIT = 1003;
+    static constexpr int MENU_TOGGLE_INPUT = 1004;
+    static constexpr int MENU_SEPARATOR2 = 1005;
+    static constexpr int MENU_HOTKEY_SETTINGS = 1006;
     
 private:
     // 创建像素小狗图标

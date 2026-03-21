@@ -129,9 +129,12 @@ void TrayIconManager::ShowContextMenu() {
     }
     
     // 添加菜单项
-    AddMenuItem(menu, MENU_SWITCH_MODE, L"切换模式");
+    AddMenuItem(menu, MENU_SWITCH_MODE, L"🔄 切换模式");
+    AddMenuItem(menu, MENU_TOGGLE_INPUT, L"🔓 切换输入模式");
     AddMenuItem(menu, MENU_SEPARATOR, L"", false);  // 分隔线
-    AddMenuItem(menu, MENU_EXIT, L"退出");
+    AddMenuItem(menu, MENU_HOTKEY_SETTINGS, L"⌨️ 热键设置");
+    AddMenuItem(menu, MENU_SEPARATOR2, L"", false);  // 分隔线
+    AddMenuItem(menu, MENU_EXIT, L"🚪 退出");
     
     // 显示菜单
     POINT pt;

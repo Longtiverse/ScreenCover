@@ -11,6 +11,12 @@ enum class BlackoutModeType {
     POWEROFF    // 硬件断电（显示器电源管理）
 };
 
+// 输入模式类型
+enum class InputModeType {
+    FREE,      // 自由模式：输入穿透
+    LOCKED     // 锁定模式：阻断输入
+};
+
 // 黑屏模式基类
 class BlackoutMode {
 public:
@@ -30,6 +36,15 @@ public:
     
     // 获取模式类型
     virtual BlackoutModeType GetType() const = 0;
+    
+    // 设置输入模式
+    virtual void SetInputMode(InputModeType mode) = 0;
+    
+    // 获取输入模式
+    virtual InputModeType GetInputMode() const = 0;
+    
+    // 切换输入模式
+    virtual void ToggleInputMode() = 0;
 };
 
 } // namespace screencover

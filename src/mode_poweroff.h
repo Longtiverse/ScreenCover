@@ -18,6 +18,11 @@ public:
     std::wstring GetName() const override;
     BlackoutModeType GetType() const override;
     
+    // 输入模式接口
+    void SetInputMode(InputModeType mode) override;
+    InputModeType GetInputMode() const override;
+    void ToggleInputMode() override;
+    
     // 设置是否启用 Watchdog
     void SetWatchdogEnabled(bool enabled);
     void SetWatchdogInterval(DWORD intervalMs);
@@ -39,6 +44,18 @@ private:
     // 获取当前显示器电源状态
     static bool IsMonitorOn();
     
+    // 安装输入拦截钩子
+    void InstallInputHooks();
+    
+    // 卸载输入拦截钩子
+    void RemoveInputHooks();
+    
+    // 键盘钩子回调
+    static LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+    
+    // 鼠标钩子回调
+    static LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+    
 private:
     std::atomic<bool> active_;
     std::atomic<bool> watchdogEnabled_;
@@ -47,6 +64,12 @@ private:
     DWORD maxWakeDurationMs_;
     DWORD powerOffTime_;
     std::thread watchdogThread_;
+    InputModeType inputMode_;
+    HHOOK keyboardHook_;
+    HHOOK mouseHook_;
+    
+    // 单例指针（用于钩子回调）
+    static ModePowerOff* instance_;
 };
 
 } // namespace screencover

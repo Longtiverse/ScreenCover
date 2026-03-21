@@ -5,6 +5,7 @@
 #include "mode_poweroff.h"
 #include "sequence_detector.h"
 #include "tray_icon.h"
+#include "settings_manager.h"
 #include <memory>
 
 namespace screencover {
@@ -12,6 +13,7 @@ namespace screencover {
 // 自定义消息常量
 #define WM_SC_TOGGLE_BLACKOUT (WM_USER + 1)
 #define WM_SC_EXIT_BLACKOUT   (WM_USER + 2)
+#define WM_SC_TOGGLE_INPUT    (WM_USER + 3)
 
 // 应用程序主控制器
 class Application {
@@ -41,6 +43,9 @@ public:
     // 切换工作模式（软件/硬件）
     void SwitchMode();
     
+    // 切换输入模式（自由/锁定）
+    void ToggleInputMode();
+    
     // 获取当前模式
     BlackoutMode* GetCurrentMode() const;
     
@@ -63,6 +68,9 @@ private:
     // 序列触发回调
     void OnSequenceTriggered();
     
+    // 更新托盘图标和提示
+    void UpdateTrayStatus();
+    
 private:
     HWND hwnd_;
     bool running_;
@@ -78,6 +86,9 @@ private:
     
     // 托盘图标
     std::unique_ptr<TrayIconManager> trayIcon_;
+    
+    // 配置管理器
+    std::unique_ptr<SettingsManager> settings_;
     
     // 单例实例（用于静态回调）
     static Application* instance_;
