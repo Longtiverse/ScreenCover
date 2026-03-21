@@ -170,7 +170,7 @@ void ExitBlackout() {
     nid.hWnd = g_hwnd;
     nid.uID = 1;
     nid.uFlags = NIF_TIP;
-    wcscpy_s(nid.szTip, L"ScreenCover - 监控中");
+    wcscpy_s(nid.szTip, g_isHardwareMode ? L"ScreenCover - 硬件断电模式" : L"ScreenCover - 软件黑屏模式");
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
@@ -185,18 +185,15 @@ void SwitchMode() {
     if (g_isBlackout) ExitBlackout();
     g_isHardwareMode = !g_isHardwareMode;
     
-    // 更新图标
+    // 更新图标和提示
     NOTIFYICONDATA nid = {0};
     nid.cbSize = sizeof(nid);
     nid.hWnd = g_hwnd;
     nid.uID = 1;
-    nid.uFlags = NIF_ICON;
+    nid.uFlags = NIF_ICON | NIF_TIP;
     nid.hIcon = g_isHardwareMode ? g_icon2 : g_icon1;
+    wcscpy_s(nid.szTip, g_isHardwareMode ? L"ScreenCover - 硬件断电模式" : L"ScreenCover - 软件黑屏模式");
     Shell_NotifyIcon(NIM_MODIFY, &nid);
-    
-    MessageBox(g_hwnd, 
-               g_isHardwareMode ? L"已切换到: 硬件断电模式" : L"已切换到: 软件黑屏模式",
-               L"ScreenCover", MB_OK);
 }
 
 // 显示托盘菜单
@@ -239,12 +236,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
                 nid.uCallbackMessage = WM_TRAY;
                 nid.hIcon = g_icon1;
-                wcscpy_s(nid.szTip, L"ScreenCover - 软件黑屏 - 监控中");
+                wcscpy_s(nid.szTip, L"ScreenCover - 软件黑屏模式");
                 Shell_NotifyIcon(NIM_ADD, &nid);
             }
             
-            // 显示启动提示
-            MessageBox(hwnd, L"热键: Win+Shift+H\n右键托盘切换模式", L"ScreenCover 已启动", MB_OK);
             return 0;
             
         case WM_HOTKEY:
