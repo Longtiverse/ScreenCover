@@ -34,7 +34,7 @@ static UINT g_blackoutVk = 'H';
 static UINT g_lockMod = MOD_WIN | MOD_SHIFT;
 static UINT g_lockVk = 'L';
 static UINT g_modeMod = MOD_WIN | MOD_SHIFT;
-static UINT g_modeVk = 'M';
+static UINT g_modeVk = 'X';
 // 安全退出热键固定: Win+Shift+ESC
 
 // 热键捕获
