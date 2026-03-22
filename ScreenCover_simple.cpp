@@ -90,6 +90,14 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && g_isLocked && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* kb = (KBDLLHOOKSTRUCT*)lParam;
         
+        // 放行所有修饰键（必须放行，否则热键检测会失败）
+        if (kb->vkCode == VK_LWIN || kb->vkCode == VK_RWIN ||
+            kb->vkCode == VK_LSHIFT || kb->vkCode == VK_RSHIFT ||
+            kb->vkCode == VK_LCONTROL || kb->vkCode == VK_RCONTROL ||
+            kb->vkCode == VK_LMENU || kb->vkCode == VK_RMENU) {
+            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+        }
+        
         // 使用 GetAsyncKeyState 检查当前物理键状态
         BOOL winPressed = (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000);
         BOOL shiftPressed = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -224,9 +232,15 @@ HICON CreateDogIcon(BOOL smile) {
 }
 
 // ==================== 黑屏窗口 ====================
+// 空白光标，用于隐藏鼠标
+static HCURSOR g_hBlankCursor = NULL;
+
 LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    // 吞掉所有输入，只由热键退出
     switch (msg) {
+        case WM_SETCURSOR:
+            // 隐藏鼠标光标
+            SetCursor(NULL);
+            return TRUE;
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
         case WM_HOTKEY:
@@ -239,12 +253,27 @@ LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+void CreateBlankCursor() {
+    // 创建32x32全透明光标
+    BYTE andMask[128];  // 32x32 / 8 = 128
+    BYTE xorMask[128];
+    ZeroMemory(andMask, 128);
+    ZeroMemory(xorMask, 128);
+    g_hBlankCursor = CreateCursor(GetModuleHandleW(NULL), 0, 0, 32, 32, andMask, xorMask);
+}
+
 void CreateCoverWindow() {
+    // 创建空白光标（如果还没有）
+    if (!g_hBlankCursor) {
+        CreateBlankCursor();
+    }
+    
     WNDCLASS wc = {0};
     wc.lpfnWndProc = CoverWndProc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = L"ScreenCoverOverlay";
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.hCursor = g_hBlankCursor;  // 设置空白光标
     RegisterClassW(&wc);
     
     int w = GetSystemMetrics(SM_CXSCREEN);
@@ -260,6 +289,8 @@ void CreateCoverWindow() {
     if (g_coverWnd) {
         ShowWindow(g_coverWnd, SW_SHOW);
         SetForegroundWindow(g_coverWnd);
+        // 强制隐藏光标
+        SetCursor(NULL);
     }
 }
 
@@ -281,9 +312,9 @@ void ExitBlackout() {
     g_isBlackout = FALSE;
     
     if (g_isHardwareMode) {
-        // 唤醒显示器
-        mouse_event(MOUSEEVENTF_MOVE, 1, 0, 0, 0);
-        mouse_event(MOUSEEVENTF_MOVE, -1, 0, 0, 0);
+        // 使用 keybd_event 模拟按键唤醒显示器
+        keybd_event(VK_SHIFT, 0x2A, 0, 0);
+        keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0);
     } else {
         if (g_coverWnd) {
             DestroyWindow(g_coverWnd);
