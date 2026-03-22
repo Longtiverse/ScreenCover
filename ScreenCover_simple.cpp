@@ -291,8 +291,39 @@ BOOL g_captureForBlackout = TRUE;
 
 LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+        case WM_CREATE: {
+            // 先注销热键，避免冲突
+            UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
+            UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
+            return 0;
+        }
+        
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            
+            WCHAR text[256];
+            wsprintfW(text, L"请按下新的%s热键...\n\n例如: Win+Shift+H, Ctrl+Alt+K\n\n按 ESC 取消", 
+                      g_captureForBlackout ? L"黑屏" : L"锁定");
+            
+            DrawTextW(hdc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
+            // ESC 取消
+            if (wParam == VK_ESCAPE) {
+                // 重新注册原来的热键
+                RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+                RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            
             UINT mod = 0;
             if (GetKeyState(VK_CONTROL) & 0x8000) mod |= MOD_CONTROL;
             if (GetKeyState(VK_SHIFT) & 0x8000) mod |= MOD_SHIFT;
@@ -304,6 +335,12 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             // 忽略单独的修饰键
             if (vk == VK_CONTROL || vk == VK_SHIFT || vk == VK_MENU || 
                 vk == VK_LWIN || vk == VK_RWIN) {
+                return 0;
+            }
+            
+            // 必须有修饰键
+            if (mod == 0) {
+                MessageBoxW(hwnd, L"热键必须包含修饰键 (Win/Ctrl/Shift/Alt)", L"提示", MB_OK);
                 return 0;
             }
             
@@ -319,10 +356,15 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             SaveConfig();
             
             // 重新注册热键
-            UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
-            UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
             RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
             RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+            
+            // 显示设置成功
+            WCHAR keyName[64];
+            GetKeyName(vk, mod, keyName, 64);
+            WCHAR msg[128];
+            wsprintfW(msg, L"热键已设置为: %s", keyName);
+            MessageBoxW(hwnd, msg, L"成功", MB_OK);
             
             DestroyWindow(hwnd);
             return 0;
@@ -351,14 +393,15 @@ void StartCaptureHotkey(BOOL forBlackout) {
     RegisterClassW(&wc);
     
     g_captureWnd = CreateWindowExW(
-        WS_EX_TOPMOST,
+        WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
         L"ScreenCoverCapture",
-        forBlackout ? L"请按下新的黑屏热键..." : L"请按下新的锁定热键...",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 300, 100,
+        forBlackout ? L"设置黑屏热键" : L"设置锁定热键",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 350, 150,
         NULL, NULL, GetModuleHandleW(NULL), NULL
     );
     
+    ShowWindow(g_captureWnd, SW_SHOW);
     SetForegroundWindow(g_captureWnd);
 }
 
