@@ -288,6 +288,18 @@ void UpdateTrayIcon() {
 // ==================== 热键捕获窗口 ====================
 HWND g_captureWnd = NULL;
 BOOL g_captureForBlackout = TRUE;
+UINT g_capturedMod = 0;
+UINT g_capturedVk = 0;
+WCHAR g_capturedText[128] = L"请按下热键组合...";
+
+#define ID_BTN_CONFIRM 101
+#define ID_BTN_CANCEL  102
+#define IDC_HOTKEY_DISPLAY 103
+
+void UpdateHotkeyDisplay(HWND hwnd) {
+    SetDlgItemTextW(hwnd, IDC_HOTKEY_DISPLAY, g_capturedText);
+    InvalidateRect(hwnd, NULL, TRUE);
+}
 
 LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -295,78 +307,119 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             // 先注销热键，避免冲突
             UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
             UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
+            
+            // 重置捕获状态
+            g_capturedMod = 0;
+            g_capturedVk = 0;
+            lstrcpyW(g_capturedText, L"请按下热键组合...");
+            
+            // 创建控件
+            CreateWindowW(L"STATIC", g_capturedText,
+                WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE,
+                20, 20, 310, 40,
+                hwnd, (HMENU)IDC_HOTKEY_DISPLAY, 
+                GetModuleHandleW(NULL), NULL);
+            
+            CreateWindowW(L"BUTTON", L"确认",
+                WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                80, 80, 80, 30,
+                hwnd, (HMENU)ID_BTN_CONFIRM,
+                GetModuleHandleW(NULL), NULL);
+            
+            CreateWindowW(L"BUTTON", L"取消",
+                WS_CHILD | WS_VISIBLE,
+                190, 80, 80, 30,
+                hwnd, (HMENU)ID_BTN_CANCEL,
+                GetModuleHandleW(NULL), NULL);
+            
+            // 初始禁用确认按钮
+            EnableWindow(GetDlgItem(hwnd, ID_BTN_CONFIRM), FALSE);
+            
             return 0;
         }
         
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hwnd, &ps);
-            RECT rc;
-            GetClientRect(hwnd, &rc);
-            
-            WCHAR text[256];
-            wsprintfW(text, L"请按下新的%s热键...\n\n例如: Win+Shift+H, Ctrl+Alt+K\n\n按 ESC 取消", 
-                      g_captureForBlackout ? L"黑屏" : L"锁定");
-            
-            DrawTextW(hdc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
-            EndPaint(hwnd, &ps);
+        case WM_COMMAND:
+            if (LOWORD(wParam) == ID_BTN_CONFIRM) {
+                // 确认按钮 - 保存设置
+                if (g_capturedMod != 0 && g_capturedVk != 0) {
+                    if (g_captureForBlackout) {
+                        g_blackoutMod = g_capturedMod;
+                        g_blackoutVk = g_capturedVk;
+                    } else {
+                        g_lockMod = g_capturedMod;
+                        g_lockVk = g_capturedVk;
+                    }
+                    SaveConfig();
+                    
+                    // 重新注册热键
+                    RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+                    RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                    
+                    DestroyWindow(hwnd);
+                }
+            }
+            else if (LOWORD(wParam) == ID_BTN_CANCEL) {
+                // 取消按钮 - 恢复原热键
+                RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+                RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                DestroyWindow(hwnd);
+            }
             return 0;
-        }
         
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
+            UINT vk = (UINT)wParam;
+            
             // ESC 取消
-            if (wParam == VK_ESCAPE) {
-                // 重新注册原来的热键
+            if (vk == VK_ESCAPE) {
                 RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
                 RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
                 DestroyWindow(hwnd);
                 return 0;
             }
             
-            UINT mod = 0;
-            if (GetKeyState(VK_CONTROL) & 0x8000) mod |= MOD_CONTROL;
-            if (GetKeyState(VK_SHIFT) & 0x8000) mod |= MOD_SHIFT;
-            if (GetKeyState(VK_MENU) & 0x8000) mod |= MOD_ALT;
-            if (GetKeyState(VK_LWIN) & 0x8000 || GetKeyState(VK_RWIN) & 0x8000) mod |= MOD_WIN;
-            
-            UINT vk = (UINT)wParam;
+            // 更新修饰键状态
+            g_capturedMod = 0;
+            if (GetKeyState(VK_CONTROL) & 0x8000) g_capturedMod |= MOD_CONTROL;
+            if (GetKeyState(VK_SHIFT) & 0x8000) g_capturedMod |= MOD_SHIFT;
+            if (GetKeyState(VK_MENU) & 0x8000) g_capturedMod |= MOD_ALT;
+            if (GetKeyState(VK_LWIN) & 0x8000 || GetKeyState(VK_RWIN) & 0x8000) g_capturedMod |= MOD_WIN;
             
             // 忽略单独的修饰键
             if (vk == VK_CONTROL || vk == VK_SHIFT || vk == VK_MENU || 
                 vk == VK_LWIN || vk == VK_RWIN) {
+                // 只更新显示
+                WCHAR buf[64] = L"";
+                if (g_capturedMod & MOD_WIN) wcscat_s(buf, 64, L"Win+");
+                if (g_capturedMod & MOD_CONTROL) wcscat_s(buf, 64, L"Ctrl+");
+                if (g_capturedMod & MOD_SHIFT) wcscat_s(buf, 64, L"Shift+");
+                if (g_capturedMod & MOD_ALT) wcscat_s(buf, 64, L"Alt+");
+                if (buf[0] == 0) lstrcpyW(buf, L"请按下热键组合...");
+                lstrcpyW(g_capturedText, buf);
+                UpdateHotkeyDisplay(hwnd);
                 return 0;
             }
             
             // 必须有修饰键
-            if (mod == 0) {
-                MessageBoxW(hwnd, L"热键必须包含修饰键 (Win/Ctrl/Shift/Alt)", L"提示", MB_OK);
+            if (g_capturedMod == 0) {
+                lstrcpyW(g_capturedText, L"请至少按住一个修饰键...");
+                UpdateHotkeyDisplay(hwnd);
                 return 0;
             }
             
-            // 更新配置
-            if (g_captureForBlackout) {
-                g_blackoutMod = mod;
-                g_blackoutVk = vk;
-            } else {
-                g_lockMod = mod;
-                g_lockVk = vk;
-            }
+            // 记录主键
+            g_capturedVk = vk;
             
-            SaveConfig();
+            // 构建显示文本
+            WCHAR keyName[64] = {0};
+            GetKeyName(vk, g_capturedMod, keyName, 64);
+            lstrcpyW(g_capturedText, keyName);
+            UpdateHotkeyDisplay(hwnd);
             
-            // 重新注册热键
-            RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-            RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+            // 启用确认按钮
+            EnableWindow(GetDlgItem(hwnd, ID_BTN_CONFIRM), TRUE);
+            SetFocus(GetDlgItem(hwnd, ID_BTN_CONFIRM));
             
-            // 显示设置成功
-            WCHAR keyName[64];
-            GetKeyName(vk, mod, keyName, 64);
-            WCHAR msg[128];
-            wsprintfW(msg, L"热键已设置为: %s", keyName);
-            MessageBoxW(hwnd, msg, L"成功", MB_OK);
-            
-            DestroyWindow(hwnd);
             return 0;
         }
         
