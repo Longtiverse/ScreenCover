@@ -300,8 +300,8 @@ void EnterBlackout() {
     g_isBlackout = TRUE;
     
     if (g_isHardwareMode) {
-        // 使用 PostMessage 避免阻塞
-        PostMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
+        // 使用 SendMessage 同步等待，比 PostMessage 更快
+        SendMessage(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
     } else {
         CreateCoverWindow();
     }
@@ -312,9 +312,21 @@ void ExitBlackout() {
     g_isBlackout = FALSE;
     
     if (g_isHardwareMode) {
-        // 使用 keybd_event 模拟按键唤醒显示器
-        keybd_event(VK_SHIFT, 0x2A, 0, 0);
-        keybd_event(VK_SHIFT, 0x2A, KEYEVENTF_KEYUP, 0);
+        // 组合多种方式唤醒，确保兼容性
+        // 方式1: SendInput（更可靠）
+        INPUT inputs[2] = {0};
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].ki.wVk = VK_SHIFT;
+        inputs[1].type = INPUT_KEYBOARD;
+        inputs[1].ki.wVk = VK_SHIFT;
+        inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(2, inputs, sizeof(INPUT));
+        
+        // 方式2: 鼠标移动（备用）
+        mouse_event(MOUSEEVENTF_MOVE, 1, 1, 0, 0);
+        
+        // 方式3: 通知系统显示器需要开启
+        SetThreadExecutionState(ES_DISPLAY_REQUIRED);
     } else {
         if (g_coverWnd) {
             DestroyWindow(g_coverWnd);
