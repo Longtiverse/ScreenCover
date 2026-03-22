@@ -8,7 +8,8 @@
 #define WM_TRAY         (WM_USER + 1)
 #define HOTKEY_BLACKOUT 1
 #define HOTKEY_LOCK     2
-#define HOTKEY_EXIT     3  // 安全退出热键
+#define HOTKEY_EXIT     3
+#define HOTKEY_MODE     4  // 模式切换热键
 #define REG_PATH        L"Software\\ScreenCover"
 #define MUTEX_NAME      L"Global\\ScreenCover_Mutex"
 
@@ -23,16 +24,22 @@ static HICON g_iconSad = NULL;
 static HHOOK g_kbHook = NULL;
 static HHOOK g_mouseHook = NULL;
 
+// 函数声明
+void ShowHint(LPCWSTR text);
+void UpdateTrayIcon();
+
 // 热键配置
 static UINT g_blackoutMod = MOD_WIN | MOD_SHIFT;
 static UINT g_blackoutVk = 'H';
 static UINT g_lockMod = MOD_WIN | MOD_SHIFT;
 static UINT g_lockVk = 'L';
+static UINT g_modeMod = MOD_WIN | MOD_SHIFT;
+static UINT g_modeVk = 'M';
 // 安全退出热键固定: Win+Shift+ESC
 
 // 热键捕获
 static HWND g_captureWnd = NULL;
-static BOOL g_captureForBlackout = TRUE;
+static INT g_captureMode = 0;  // 0=黑屏, 1=锁定, 2=模式
 static UINT g_capturedMod = 0;
 static UINT g_capturedVk = 0;
 static WCHAR g_capturedText[128] = L"请按下热键组合...";
@@ -46,6 +53,8 @@ void LoadConfig() {
         RegQueryValueExW(hKey, L"BlackoutVk", NULL, NULL, (LPBYTE)&g_blackoutVk, &size);
         RegQueryValueExW(hKey, L"LockMod", NULL, NULL, (LPBYTE)&g_lockMod, &size);
         RegQueryValueExW(hKey, L"LockVk", NULL, NULL, (LPBYTE)&g_lockVk, &size);
+        RegQueryValueExW(hKey, L"ModeMod", NULL, NULL, (LPBYTE)&g_modeMod, &size);
+        RegQueryValueExW(hKey, L"ModeVk", NULL, NULL, (LPBYTE)&g_modeVk, &size);
         DWORD hwMode = 0;
         size = sizeof(DWORD);
         RegQueryValueExW(hKey, L"HardwareMode", NULL, NULL, (LPBYTE)&hwMode, &size);
@@ -61,6 +70,8 @@ void SaveConfig() {
         RegSetValueExW(hKey, L"BlackoutVk", 0, REG_DWORD, (LPBYTE)&g_blackoutVk, sizeof(UINT));
         RegSetValueExW(hKey, L"LockMod", 0, REG_DWORD, (LPBYTE)&g_lockMod, sizeof(UINT));
         RegSetValueExW(hKey, L"LockVk", 0, REG_DWORD, (LPBYTE)&g_lockVk, sizeof(UINT));
+        RegSetValueExW(hKey, L"ModeMod", 0, REG_DWORD, (LPBYTE)&g_modeMod, sizeof(UINT));
+        RegSetValueExW(hKey, L"ModeVk", 0, REG_DWORD, (LPBYTE)&g_modeVk, sizeof(UINT));
         DWORD hwMode = (DWORD)g_isHardwareMode;
         RegSetValueExW(hKey, L"HardwareMode", 0, REG_DWORD, (LPBYTE)&hwMode, sizeof(DWORD));
         RegCloseKey(hKey);
@@ -139,6 +150,21 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
+        // 模式切换热键
+        BOOL modeMatch = (kb->vkCode == g_modeVk);
+        if (g_modeMod & MOD_CONTROL) modeMatch = modeMatch && ctrlPressed;
+        else modeMatch = modeMatch && !ctrlPressed;
+        if (g_modeMod & MOD_SHIFT) modeMatch = modeMatch && shiftPressed;
+        else modeMatch = modeMatch && !shiftPressed;
+        if (g_modeMod & MOD_ALT) modeMatch = modeMatch && altPressed;
+        else modeMatch = modeMatch && !altPressed;
+        if (g_modeMod & MOD_WIN) modeMatch = modeMatch && winPressed;
+        else modeMatch = modeMatch && !winPressed;
+        
+        if (modeMatch) {
+            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+        }
+        
         // 拦截其他按键
         return 1;
     }
@@ -170,9 +196,18 @@ void ToggleLock() {
     g_isLocked = !g_isLocked;
     if (g_isLocked) {
         InstallHooks();
+        ShowHint(L"LOCK ON");
     } else {
         UninstallHooks();
+        ShowHint(L"LOCK OFF");
     }
+}
+
+void ToggleMode() {
+    g_isHardwareMode = !g_isHardwareMode;
+    SaveConfig();
+    UpdateTrayIcon();
+    ShowHint(g_isHardwareMode ? L"HW" : L"SW");
 }
 
 // ==================== 图标创建 ====================
@@ -338,8 +373,10 @@ void ExitBlackout() {
 void ToggleBlackout() {
     if (g_isBlackout) {
         ExitBlackout();
+        ShowHint(L"OFF");
     } else {
         EnterBlackout();
+        ShowHint(L"ON");
     }
 }
 
@@ -353,6 +390,67 @@ void SafeExit() {
         UninstallHooks();
     }
     PostQuitMessage(0);
+}
+
+// ==================== 屏幕提示 ====================
+#define TIMER_HINT 100
+
+LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_TIMER && wParam == TIMER_HINT) {
+        KillTimer(hwnd, TIMER_HINT);
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    if (msg == WM_PAINT) {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        
+        WCHAR text[32] = {0};
+        GetWindowTextW(hwnd, text, 32);
+        DrawTextW(hdc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+void ShowHint(LPCWSTR text) {
+    // 注册提示窗口类（如果还没注册）
+    WNDCLASS wc = {0};
+    wc.lpfnWndProc = HintWndProc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = L"ScreenCoverHint";
+    wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30));
+    RegisterClassW(&wc);
+    
+    // 获取屏幕尺寸
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    
+    // 窗口大小和位置（左下角）
+    int w = 120, h = 50;
+    int x = 30;
+    int y = screenH - h - 80;
+    
+    HWND hwnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+        L"ScreenCoverHint", text,
+        WS_POPUP | WS_VISIBLE,
+        x, y, w, h,
+        NULL, NULL, GetModuleHandleW(NULL), NULL
+    );
+    
+    if (hwnd) {
+        // 设置半透明
+        SetLayeredWindowAttributes(hwnd, 0, 200, LWA_ALPHA);
+        
+        // 500ms 后销毁
+        SetTimer(hwnd, TIMER_HINT, 500, NULL);
+    }
 }
 
 // ==================== 更新托盘 ====================
@@ -381,6 +479,7 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_CREATE: {
             UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
             UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
+            UnregisterHotKey(g_hwnd, HOTKEY_MODE);
             
             g_capturedMod = 0;
             g_capturedVk = 0;
@@ -411,22 +510,27 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_BTN_CONFIRM) {
                 if (g_capturedMod != 0 && g_capturedVk != 0) {
-                    if (g_captureForBlackout) {
+                    if (g_captureMode == 0) {
                         g_blackoutMod = g_capturedMod;
                         g_blackoutVk = g_capturedVk;
-                    } else {
+                    } else if (g_captureMode == 1) {
                         g_lockMod = g_capturedMod;
                         g_lockVk = g_capturedVk;
+                    } else {
+                        g_modeMod = g_capturedMod;
+                        g_modeVk = g_capturedVk;
                     }
                     SaveConfig();
                     RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
                     RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                    RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
                     DestroyWindow(hwnd);
                 }
             }
             else if (LOWORD(wParam) == ID_BTN_CANCEL) {
                 RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
                 RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
                 DestroyWindow(hwnd);
             }
             return 0;
@@ -438,6 +542,7 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (vk == VK_ESCAPE) {
                 RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
                 RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
                 DestroyWindow(hwnd);
                 return 0;
             }
@@ -485,13 +590,13 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-void StartCaptureHotkey(BOOL forBlackout) {
+void StartCaptureHotkey(INT mode) {
     if (g_captureWnd) {
         SetForegroundWindow(g_captureWnd);
         return;
     }
     
-    g_captureForBlackout = forBlackout;
+    g_captureMode = mode;
     
     WNDCLASS wc = {0};
     wc.lpfnWndProc = CaptureWndProc;
@@ -500,10 +605,15 @@ void StartCaptureHotkey(BOOL forBlackout) {
     wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
     RegisterClassW(&wc);
     
+    LPCWSTR title = L"设置热键";
+    if (mode == 0) title = L"设置黑屏热键";
+    else if (mode == 1) title = L"设置锁定热键";
+    else title = L"设置模式热键";
+    
     g_captureWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
         L"ScreenCoverCapture",
-        forBlackout ? L"设置黑屏热键" : L"设置锁定热键",
+        title,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 350, 150,
         g_hwnd, NULL, GetModuleHandleW(NULL), NULL
@@ -531,20 +641,25 @@ void ShowTrayMenu() {
     wsprintfW(item, L"锁定热键: %s", buf);
     AppendMenuW(menu, MF_STRING, 2, item);
     
+    // 模式热键
+    GetKeyName(g_modeVk, g_modeMod, buf, 128);
+    wsprintfW(item, L"模式热键: %s", buf);
+    AppendMenuW(menu, MF_STRING, 3, item);
+    
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     
     // 模式切换 - 带勾选标记
-    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_UNCHECKED : MF_CHECKED), 3, L"软件模式");
-    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_CHECKED : MF_UNCHECKED), 4, L"硬件模式");
+    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_UNCHECKED : MF_CHECKED), 4, L"软件模式");
+    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_CHECKED : MF_UNCHECKED), 5, L"硬件模式");
     
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     
     // 锁定状态
-    AppendMenuW(menu, MF_STRING | (g_isLocked ? MF_CHECKED : MF_UNCHECKED), 5,
+    AppendMenuW(menu, MF_STRING | (g_isLocked ? MF_CHECKED : MF_UNCHECKED), 6,
         g_isLocked ? L"已锁定输入" : L"未锁定输入");
     
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(menu, MF_STRING, 6, L"退出");
+    AppendMenuW(menu, MF_STRING, 7, L"退出");
     
     POINT pt;
     GetCursorPos(&pt);
@@ -558,20 +673,23 @@ void ShowTrayMenu() {
     
     // 处理菜单命令
     switch (cmd) {
-        case 1: StartCaptureHotkey(TRUE); break;
-        case 2: StartCaptureHotkey(FALSE); break;
-        case 3:
+        case 1: StartCaptureHotkey(0); break;
+        case 2: StartCaptureHotkey(1); break;
+        case 3: StartCaptureHotkey(2); break;
+        case 4:
             g_isHardwareMode = FALSE;
             SaveConfig();
             UpdateTrayIcon();
+            ShowHint(L"SW");
             break;
-        case 4:
+        case 5:
             g_isHardwareMode = TRUE;
             SaveConfig();
             UpdateTrayIcon();
+            ShowHint(L"HW");
             break;
-        case 5: ToggleLock(); break;
-        case 6: SafeExit(); break;
+        case 6: ToggleLock(); break;
+        case 7: SafeExit(); break;
     }
 }
 
@@ -581,8 +699,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_CREATE:
             RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
             RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-            // 安全退出热键: Win+Shift+ESC
             RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
+            RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
             
             g_iconSmile = CreateDogIcon(TRUE);
             g_iconSad = CreateDogIcon(FALSE);
@@ -607,15 +725,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 ToggleLock();
             } else if (wParam == HOTKEY_EXIT) {
                 SafeExit();
+            } else if (wParam == HOTKEY_MODE) {
+                ToggleMode();
             }
             return 0;
             
         case WM_TRAY:
             if (lParam == WM_LBUTTONUP) {
                 // 左键单击切换模式
-                g_isHardwareMode = !g_isHardwareMode;
-                SaveConfig();
-                UpdateTrayIcon();
+                ToggleMode();
             } else if (lParam == WM_RBUTTONUP) {
                 // 右键单击显示菜单
                 ShowTrayMenu();
@@ -626,6 +744,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             UnregisterHotKey(hwnd, HOTKEY_BLACKOUT);
             UnregisterHotKey(hwnd, HOTKEY_LOCK);
             UnregisterHotKey(hwnd, HOTKEY_EXIT);
+            UnregisterHotKey(hwnd, HOTKEY_MODE);
             
             {
                 NOTIFYICONDATAW nid = {0};
