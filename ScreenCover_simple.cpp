@@ -86,35 +86,48 @@ void GetKeyName(UINT vk, UINT mod, LPWSTR buf, int bufSize) {
 }
 
 // ==================== 输入拦截钩子 ====================
-BOOL CheckHotkeyMatch(UINT vk, UINT requiredVk, UINT requiredMod) {
-    if (vk != requiredVk) return FALSE;
-    
-    BOOL ctrlOk = ((requiredMod & MOD_CONTROL) != 0) == ((GetKeyState(VK_CONTROL) & 0x8000) != 0);
-    BOOL shiftOk = ((requiredMod & MOD_SHIFT) != 0) == ((GetKeyState(VK_SHIFT) & 0x8000) != 0);
-    BOOL altOk = ((requiredMod & MOD_ALT) != 0) == ((GetKeyState(VK_MENU) & 0x8000) != 0);
-    BOOL winOk = ((requiredMod & MOD_WIN) != 0) == ((GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000));
-    
-    return ctrlOk && shiftOk && altOk && winOk;
-}
-
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && g_isLocked && wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* kb = (KBDLLHOOKSTRUCT*)lParam;
         
-        // 放行安全退出热键 (Win+Shift+ESC)
-        if (kb->vkCode == VK_ESCAPE && 
-            (GetKeyState(VK_LWIN) & 0x8000 || GetKeyState(VK_RWIN) & 0x8000) &&
-            (GetKeyState(VK_SHIFT) & 0x8000)) {
+        // 使用 GetAsyncKeyState 检查当前物理键状态
+        BOOL winPressed = (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000);
+        BOOL shiftPressed = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        BOOL ctrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        BOOL altPressed = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+        
+        // 安全退出: Win+Shift+ESC (必须最优先检查)
+        if (kb->vkCode == VK_ESCAPE && winPressed && shiftPressed) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
-        // 放行黑屏热键
-        if (CheckHotkeyMatch(kb->vkCode, g_blackoutVk, g_blackoutMod)) {
+        // 黑屏热键
+        BOOL blackoutMatch = (kb->vkCode == g_blackoutVk);
+        if (g_blackoutMod & MOD_CONTROL) blackoutMatch = blackoutMatch && ctrlPressed;
+        else blackoutMatch = blackoutMatch && !ctrlPressed;
+        if (g_blackoutMod & MOD_SHIFT) blackoutMatch = blackoutMatch && shiftPressed;
+        else blackoutMatch = blackoutMatch && !shiftPressed;
+        if (g_blackoutMod & MOD_ALT) blackoutMatch = blackoutMatch && altPressed;
+        else blackoutMatch = blackoutMatch && !altPressed;
+        if (g_blackoutMod & MOD_WIN) blackoutMatch = blackoutMatch && winPressed;
+        else blackoutMatch = blackoutMatch && !winPressed;
+        
+        if (blackoutMatch) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
-        // 放行锁定热键
-        if (CheckHotkeyMatch(kb->vkCode, g_lockVk, g_lockMod)) {
+        // 锁定热键
+        BOOL lockMatch = (kb->vkCode == g_lockVk);
+        if (g_lockMod & MOD_CONTROL) lockMatch = lockMatch && ctrlPressed;
+        else lockMatch = lockMatch && !ctrlPressed;
+        if (g_lockMod & MOD_SHIFT) lockMatch = lockMatch && shiftPressed;
+        else lockMatch = lockMatch && !shiftPressed;
+        if (g_lockMod & MOD_ALT) lockMatch = lockMatch && altPressed;
+        else lockMatch = lockMatch && !altPressed;
+        if (g_lockMod & MOD_WIN) lockMatch = lockMatch && winPressed;
+        else lockMatch = lockMatch && !winPressed;
+        
+        if (lockMatch) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
