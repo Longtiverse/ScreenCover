@@ -199,10 +199,12 @@ HICON CreateDogIcon(BOOL smile) {
 
 // ==================== 黑屏窗口 ====================
 LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // 不处理任何输入，热键由主窗口处理
     switch (msg) {
         case WM_KEYDOWN:
-            PostMessage(g_hwnd, WM_EXIT_BLACKOUT, 0, 0);
-            return 0;
+        case WM_SYSKEYDOWN:
+        case WM_HOTKEY:
+            return 0;  // 吞掉所有按键
         case WM_LBUTTONDOWN:
         case WM_RBUTTONDOWN:
         case WM_MBUTTONDOWN:
