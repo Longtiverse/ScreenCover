@@ -697,10 +697,20 @@ void ShowTrayMenu() {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE:
-            RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-            RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-            RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
-            RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+            {
+                BOOL r1 = RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+                BOOL r2 = RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+                BOOL r3 = RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
+                BOOL r4 = RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+                
+                // 如果注册失败，显示错误
+                if (!r4) {
+                    WCHAR msg[256];
+                    wsprintfW(msg, L"模式热键注册失败! mod=%d vk=%d err=%d", 
+                              g_modeMod, g_modeVk, GetLastError());
+                    MessageBoxW(NULL, msg, L"错误", MB_OK);
+                }
+            }
             
             g_iconSmile = CreateDogIcon(TRUE);
             g_iconSad = CreateDogIcon(FALSE);
