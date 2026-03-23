@@ -96,6 +96,30 @@ void GetKeyName(UINT vk, UINT mod, LPWSTR buf, int bufSize) {
     wcscat_s(buf, bufSize, keyName);
 }
 
+// 检查热键是否匹配
+BOOL CheckHotkeyMatch(UINT vk, UINT requiredVk, UINT requiredMod) {
+    if (vk != requiredVk) return FALSE;
+    
+    BOOL winPressed = (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000);
+    BOOL shiftPressed = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    BOOL ctrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    BOOL altPressed = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    
+    if (requiredMod & MOD_CONTROL) { if (!ctrlPressed) return FALSE; }
+    else { if (ctrlPressed) return FALSE; }
+    
+    if (requiredMod & MOD_SHIFT) { if (!shiftPressed) return FALSE; }
+    else { if (shiftPressed) return FALSE; }
+    
+    if (requiredMod & MOD_ALT) { if (!altPressed) return FALSE; }
+    else { if (altPressed) return FALSE; }
+    
+    if (requiredMod & MOD_WIN) { if (!winPressed) return FALSE; }
+    else { if (winPressed) return FALSE; }
+    
+    return TRUE;
+}
+
 // ==================== 输入拦截钩子 ====================
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && g_isLocked && wParam == WM_KEYDOWN) {
@@ -109,59 +133,17 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
-        // 使用 GetAsyncKeyState 检查当前物理键状态
+        // 安全退出: Win+Shift+ESC (必须最优先检查)
         BOOL winPressed = (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000);
         BOOL shiftPressed = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-        BOOL ctrlPressed = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        BOOL altPressed = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-        
-        // 安全退出: Win+Shift+ESC (必须最优先检查)
         if (kb->vkCode == VK_ESCAPE && winPressed && shiftPressed) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
-        // 黑屏热键
-        BOOL blackoutMatch = (kb->vkCode == g_blackoutVk);
-        if (g_blackoutMod & MOD_CONTROL) blackoutMatch = blackoutMatch && ctrlPressed;
-        else blackoutMatch = blackoutMatch && !ctrlPressed;
-        if (g_blackoutMod & MOD_SHIFT) blackoutMatch = blackoutMatch && shiftPressed;
-        else blackoutMatch = blackoutMatch && !shiftPressed;
-        if (g_blackoutMod & MOD_ALT) blackoutMatch = blackoutMatch && altPressed;
-        else blackoutMatch = blackoutMatch && !altPressed;
-        if (g_blackoutMod & MOD_WIN) blackoutMatch = blackoutMatch && winPressed;
-        else blackoutMatch = blackoutMatch && !winPressed;
-        
-        if (blackoutMatch) {
-            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
-        }
-        
-        // 锁定热键
-        BOOL lockMatch = (kb->vkCode == g_lockVk);
-        if (g_lockMod & MOD_CONTROL) lockMatch = lockMatch && ctrlPressed;
-        else lockMatch = lockMatch && !ctrlPressed;
-        if (g_lockMod & MOD_SHIFT) lockMatch = lockMatch && shiftPressed;
-        else lockMatch = lockMatch && !shiftPressed;
-        if (g_lockMod & MOD_ALT) lockMatch = lockMatch && altPressed;
-        else lockMatch = lockMatch && !altPressed;
-        if (g_lockMod & MOD_WIN) lockMatch = lockMatch && winPressed;
-        else lockMatch = lockMatch && !winPressed;
-        
-        if (lockMatch) {
-            return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
-        }
-        
-        // 模式切换热键
-        BOOL modeMatch = (kb->vkCode == g_modeVk);
-        if (g_modeMod & MOD_CONTROL) modeMatch = modeMatch && ctrlPressed;
-        else modeMatch = modeMatch && !ctrlPressed;
-        if (g_modeMod & MOD_SHIFT) modeMatch = modeMatch && shiftPressed;
-        else modeMatch = modeMatch && !shiftPressed;
-        if (g_modeMod & MOD_ALT) modeMatch = modeMatch && altPressed;
-        else modeMatch = modeMatch && !altPressed;
-        if (g_modeMod & MOD_WIN) modeMatch = modeMatch && winPressed;
-        else modeMatch = modeMatch && !winPressed;
-        
-        if (modeMatch) {
+        // 检查自定义热键
+        if (CheckHotkeyMatch(kb->vkCode, g_blackoutVk, g_blackoutMod) ||
+            CheckHotkeyMatch(kb->vkCode, g_lockVk, g_lockMod) ||
+            CheckHotkeyMatch(kb->vkCode, g_modeVk, g_modeMod)) {
             return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
         }
         
@@ -201,6 +183,7 @@ void ToggleLock() {
         UninstallHooks();
         ShowHint(L"LOCK OFF");
     }
+    UpdateTrayIcon();  // 更新托盘提示显示锁定状态
 }
 
 void ToggleMode() {
@@ -420,12 +403,16 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 
 void ShowHint(LPCWSTR text) {
     // 注册提示窗口类（如果还没注册）
-    WNDCLASS wc = {0};
-    wc.lpfnWndProc = HintWndProc;
-    wc.hInstance = GetModuleHandleW(NULL);
-    wc.lpszClassName = L"ScreenCoverHint";
-    wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30));
-    RegisterClassW(&wc);
+    static BOOL registered = FALSE;
+    if (!registered) {
+        WNDCLASS wc = {0};
+        wc.lpfnWndProc = HintWndProc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.lpszClassName = L"ScreenCoverHint";
+        wc.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
+        RegisterClassW(&wc);
+        registered = TRUE;
+    }
     
     // 获取屏幕尺寸
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -461,7 +448,9 @@ void UpdateTrayIcon() {
     nid.uID = 1;
     nid.uFlags = NIF_ICON | NIF_TIP;
     nid.hIcon = g_isHardwareMode ? g_iconSad : g_iconSmile;
-    wsprintfW(nid.szTip, L"ScreenCover [%s]", g_isHardwareMode ? L"硬件模式" : L"软件模式");
+    wsprintfW(nid.szTip, L"ScreenCover [%s%s]", 
+              g_isHardwareMode ? L"硬件" : L"软件",
+              g_isLocked ? L" 已锁定" : L"");
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
@@ -649,8 +638,8 @@ void ShowTrayMenu() {
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     
     // 模式切换 - 带勾选标记
-    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_UNCHECKED : MF_CHECKED), 4, L"软件模式");
-    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_CHECKED : MF_UNCHECKED), 5, L"硬件模式");
+    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_UNCHECKED : MF_CHECKED), 4, L"软件黑屏");
+    AppendMenuW(menu, MF_STRING | (g_isHardwareMode ? MF_CHECKED : MF_UNCHECKED), 5, L"硬件断电");
     
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     
@@ -697,20 +686,10 @@ void ShowTrayMenu() {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE:
-            {
-                BOOL r1 = RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-                BOOL r2 = RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-                BOOL r3 = RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
-                BOOL r4 = RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
-                
-                // 如果注册失败，显示错误
-                if (!r4) {
-                    WCHAR msg[256];
-                    wsprintfW(msg, L"模式热键注册失败! mod=%d vk=%d err=%d", 
-                              g_modeMod, g_modeVk, GetLastError());
-                    MessageBoxW(NULL, msg, L"错误", MB_OK);
-                }
-            }
+            RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+            RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+            RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
+            RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
             
             g_iconSmile = CreateDogIcon(TRUE);
             g_iconSad = CreateDogIcon(FALSE);
@@ -766,6 +745,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             
             if (g_iconSmile) DestroyIcon(g_iconSmile);
             if (g_iconSad) DestroyIcon(g_iconSad);
+            if (g_hBlankCursor) DestroyCursor(g_hBlankCursor);
             
             UninstallHooks();
             PostQuitMessage(0);
