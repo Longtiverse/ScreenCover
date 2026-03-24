@@ -377,6 +377,7 @@ void SafeExit() {
 
 // ==================== 屏幕提示 ====================
 #define TIMER_HINT 100
+#define COLOR_HINT_BG RGB(30, 30, 30)
 
 LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_TIMER && wParam == TIMER_HINT) {
@@ -387,8 +388,15 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
+        
+        // 填充背景
         RECT rc;
         GetClientRect(hwnd, &rc);
+        HBRUSH bgBrush = CreateSolidBrush(COLOR_HINT_BG);
+        FillRect(hdc, &rc, bgBrush);
+        DeleteObject(bgBrush);
+        
+        // 绘制文字
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
         
@@ -409,13 +417,12 @@ void ShowHint(LPCWSTR text) {
         wc.lpfnWndProc = HintWndProc;
         wc.hInstance = GetModuleHandleW(NULL);
         wc.lpszClassName = L"ScreenCoverHint";
-        wc.hbrBackground = (HBRUSH)GetStockObject(DKGRAY_BRUSH);
+        wc.hbrBackground = NULL;  // 不使用默认背景，由 WM_PAINT 绘制
         RegisterClassW(&wc);
         registered = TRUE;
     }
     
     // 获取屏幕尺寸
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     
     // 窗口大小和位置（左下角）
@@ -432,8 +439,12 @@ void ShowHint(LPCWSTR text) {
     );
     
     if (hwnd) {
-        // 设置半透明
-        SetLayeredWindowAttributes(hwnd, 0, 200, LWA_ALPHA);
+        // 设置半透明 (整体透明度)
+        SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
+        
+        // 强制立即绘制
+        InvalidateRect(hwnd, NULL, TRUE);
+        UpdateWindow(hwnd);
         
         // 500ms 后销毁
         SetTimer(hwnd, TIMER_HINT, 500, NULL);
