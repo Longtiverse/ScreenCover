@@ -375,9 +375,30 @@ void SafeExit() {
     PostQuitMessage(0);
 }
 
+// ==================== 热键管理 ====================
+void RegisterAllHotkeys() {
+    // 先取消注册所有热键
+    UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
+    UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
+    UnregisterHotKey(g_hwnd, HOTKEY_EXIT);
+    UnregisterHotKey(g_hwnd, HOTKEY_MODE);
+    
+    // 重新注册
+    RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
+    RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
+    RegisterHotKey(g_hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
+    RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+}
+
+void UnregisterAllHotkeys() {
+    UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
+    UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
+    UnregisterHotKey(g_hwnd, HOTKEY_EXIT);
+    UnregisterHotKey(g_hwnd, HOTKEY_MODE);
+}
+
 // ==================== 屏幕提示 ====================
 #define TIMER_HINT 100
-#define COLOR_HINT_BG RGB(30, 30, 30)
 
 LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_TIMER && wParam == TIMER_HINT) {
@@ -385,18 +406,16 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         DestroyWindow(hwnd);
         return 0;
     }
+    if (msg == WM_ERASEBKGND) {
+        return 1;  // 不擦除背景
+    }
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        
-        // 填充背景
         RECT rc;
         GetClientRect(hwnd, &rc);
-        HBRUSH bgBrush = CreateSolidBrush(COLOR_HINT_BG);
-        FillRect(hdc, &rc, bgBrush);
-        DeleteObject(bgBrush);
         
-        // 绘制文字
+        // 透明背景，只绘制文字
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
         
@@ -417,7 +436,8 @@ void ShowHint(LPCWSTR text) {
         wc.lpfnWndProc = HintWndProc;
         wc.hInstance = GetModuleHandleW(NULL);
         wc.lpszClassName = L"ScreenCoverHint";
-        wc.hbrBackground = NULL;  // 不使用默认背景，由 WM_PAINT 绘制
+        wc.hbrBackground = NULL;  // 透明背景
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         RegisterClassW(&wc);
         registered = TRUE;
     }
@@ -426,12 +446,12 @@ void ShowHint(LPCWSTR text) {
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     
     // 窗口大小和位置（左下角）
-    int w = 120, h = 50;
-    int x = 30;
-    int y = screenH - h - 80;
+    int w = 150, h = 40;
+    int x = 50;
+    int y = screenH - h - 100;
     
     HWND hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_LAYERED,
         L"ScreenCoverHint", text,
         WS_POPUP | WS_VISIBLE,
         x, y, w, h,
@@ -439,10 +459,10 @@ void ShowHint(LPCWSTR text) {
     );
     
     if (hwnd) {
-        // 设置半透明 (整体透明度)
-        SetLayeredWindowAttributes(hwnd, 0, 220, LWA_ALPHA);
+        // 设置透明颜色 (黑色透明)
+        SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
         
-        // 强制立即绘制
+        // 强制绘制
         InvalidateRect(hwnd, NULL, TRUE);
         UpdateWindow(hwnd);
         
@@ -477,9 +497,8 @@ void UpdateHotkeyDisplay(HWND hwnd) {
 LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
-            UnregisterHotKey(g_hwnd, HOTKEY_BLACKOUT);
-            UnregisterHotKey(g_hwnd, HOTKEY_LOCK);
-            UnregisterHotKey(g_hwnd, HOTKEY_MODE);
+            // 开始捕获前取消所有热键
+            UnregisterAllHotkeys();
             
             g_capturedMod = 0;
             g_capturedVk = 0;
@@ -521,16 +540,12 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         g_modeVk = g_capturedVk;
                     }
                     SaveConfig();
-                    RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-                    RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-                    RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+                    RegisterAllHotkeys();  // 重新注册所有热键
                     DestroyWindow(hwnd);
                 }
             }
             else if (LOWORD(wParam) == ID_BTN_CANCEL) {
-                RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-                RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-                RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+                RegisterAllHotkeys();  // 取消时也重新注册
                 DestroyWindow(hwnd);
             }
             return 0;
@@ -540,9 +555,7 @@ LRESULT CALLBACK CaptureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             UINT vk = (UINT)wParam;
             
             if (vk == VK_ESCAPE) {
-                RegisterHotKey(g_hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-                RegisterHotKey(g_hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-                RegisterHotKey(g_hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+                RegisterAllHotkeys();  // ESC 时重新注册
                 DestroyWindow(hwnd);
                 return 0;
             }
@@ -697,10 +710,7 @@ void ShowTrayMenu() {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE:
-            RegisterHotKey(hwnd, HOTKEY_BLACKOUT, g_blackoutMod, g_blackoutVk);
-            RegisterHotKey(hwnd, HOTKEY_LOCK, g_lockMod, g_lockVk);
-            RegisterHotKey(hwnd, HOTKEY_EXIT, MOD_WIN | MOD_SHIFT, VK_ESCAPE);
-            RegisterHotKey(hwnd, HOTKEY_MODE, g_modeMod, g_modeVk);
+            RegisterAllHotkeys();  // 使用统一的注册函数
             
             g_iconSmile = CreateDogIcon(TRUE);
             g_iconSad = CreateDogIcon(FALSE);
@@ -741,10 +751,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
             
         case WM_DESTROY:
-            UnregisterHotKey(hwnd, HOTKEY_BLACKOUT);
-            UnregisterHotKey(hwnd, HOTKEY_LOCK);
-            UnregisterHotKey(hwnd, HOTKEY_EXIT);
-            UnregisterHotKey(hwnd, HOTKEY_MODE);
+            UnregisterAllHotkeys();  // 使用统一的取消注册函数
             
             {
                 NOTIFYICONDATAW nid = {0};
