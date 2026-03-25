@@ -271,6 +271,16 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         DestroyWindow(hwnd);
         return 0;
     }
+    if (msg == WM_ERASEBKGND) {
+        // 填充纯黑色背景（用于颜色键透明）
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        HBRUSH brush = CreateSolidBrush(RGB(0, 0, 0));
+        FillRect(hdc, &rc, brush);
+        DeleteObject(brush);
+        return 1;
+    }
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
