@@ -252,11 +252,12 @@ HICON CreateDogIcon(BOOL smile) {
 // ==================== 黑屏窗口 ====================
 // 空白光标，用于隐藏鼠标
 static HCURSOR g_hBlankCursor = NULL;
+static BOOL g_overlayClassRegistered = FALSE;
+static BOOL g_captureClassRegistered = FALSE;
 
 LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_SETCURSOR:
-            // 隐藏鼠标光标
             SetCursor(NULL);
             return TRUE;
         case WM_KEYDOWN:
@@ -272,8 +273,7 @@ LRESULT CALLBACK CoverWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 void CreateBlankCursor() {
-    // 创建32x32全透明光标
-    BYTE andMask[128];  // 32x32 / 8 = 128
+    BYTE andMask[128];
     BYTE xorMask[128];
     ZeroMemory(andMask, 128);
     ZeroMemory(xorMask, 128);
@@ -281,18 +281,21 @@ void CreateBlankCursor() {
 }
 
 void CreateCoverWindow() {
-    // 创建空白光标（如果还没有）
     if (!g_hBlankCursor) {
         CreateBlankCursor();
     }
     
-    WNDCLASS wc = {0};
-    wc.lpfnWndProc = CoverWndProc;
-    wc.hInstance = GetModuleHandleW(NULL);
-    wc.lpszClassName = L"ScreenCoverOverlay";
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    wc.hCursor = g_hBlankCursor;  // 设置空白光标
-    RegisterClassW(&wc);
+    // 只注册一次窗口类
+    if (!g_overlayClassRegistered) {
+        WNDCLASS wc = {0};
+        wc.lpfnWndProc = CoverWndProc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.lpszClassName = L"ScreenCoverOverlay";
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        wc.hCursor = g_hBlankCursor;
+        RegisterClassW(&wc);
+        g_overlayClassRegistered = TRUE;
+    }
     
     int w = GetSystemMetrics(SM_CXSCREEN);
     int h = GetSystemMetrics(SM_CYSCREEN);
@@ -307,7 +310,6 @@ void CreateCoverWindow() {
     if (g_coverWnd) {
         ShowWindow(g_coverWnd, SW_SHOW);
         SetForegroundWindow(g_coverWnd);
-        // 强制隐藏光标
         SetCursor(NULL);
     }
 }
@@ -399,6 +401,7 @@ void UnregisterAllHotkeys() {
 
 // ==================== 屏幕提示 ====================
 #define TIMER_HINT 100
+static HWND g_hintWnd = NULL;  // 记录当前提示窗口
 
 LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (msg == WM_TIMER && wParam == TIMER_HINT) {
@@ -406,16 +409,18 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         DestroyWindow(hwnd);
         return 0;
     }
-    if (msg == WM_ERASEBKGND) {
-        return 1;  // 不擦除背景
-    }
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
         GetClientRect(hwnd, &rc);
         
-        // 透明背景，只绘制文字
+        // 绘制半透明深色背景
+        HBRUSH bgBrush = CreateSolidBrush(RGB(20, 20, 20));
+        FillRect(hdc, &rc, bgBrush);
+        DeleteObject(bgBrush);
+        
+        // 绘制白色文字
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(255, 255, 255));
         
@@ -425,10 +430,21 @@ LRESULT CALLBACK HintWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         EndPaint(hwnd, &ps);
         return 0;
     }
+    if (msg == WM_DESTROY) {
+        g_hintWnd = NULL;
+        return 0;
+    }
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 void ShowHint(LPCWSTR text) {
+    // 如果已有提示窗口，先销毁
+    if (g_hintWnd) {
+        KillTimer(g_hintWnd, TIMER_HINT);
+        DestroyWindow(g_hintWnd);
+        g_hintWnd = NULL;
+    }
+    
     // 注册提示窗口类（如果还没注册）
     static BOOL registered = FALSE;
     if (!registered) {
@@ -436,7 +452,7 @@ void ShowHint(LPCWSTR text) {
         wc.lpfnWndProc = HintWndProc;
         wc.hInstance = GetModuleHandleW(NULL);
         wc.lpszClassName = L"ScreenCoverHint";
-        wc.hbrBackground = NULL;  // 透明背景
+        wc.hbrBackground = NULL;
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         RegisterClassW(&wc);
         registered = TRUE;
@@ -446,28 +462,24 @@ void ShowHint(LPCWSTR text) {
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     
     // 窗口大小和位置（左下角）
-    int w = 150, h = 40;
+    int w = 120, h = 40;
     int x = 50;
     int y = screenH - h - 100;
     
-    HWND hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_LAYERED,
+    g_hintWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
         L"ScreenCoverHint", text,
         WS_POPUP | WS_VISIBLE,
         x, y, w, h,
         NULL, NULL, GetModuleHandleW(NULL), NULL
     );
     
-    if (hwnd) {
-        // 设置透明颜色 (黑色透明)
-        SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
-        
-        // 强制绘制
-        InvalidateRect(hwnd, NULL, TRUE);
-        UpdateWindow(hwnd);
+    if (g_hintWnd) {
+        // 设置半透明
+        SetLayeredWindowAttributes(g_hintWnd, 0, 200, LWA_ALPHA);
         
         // 500ms 后销毁
-        SetTimer(hwnd, TIMER_HINT, 500, NULL);
+        SetTimer(g_hintWnd, TIMER_HINT, 500, NULL);
     }
 }
 
@@ -611,12 +623,16 @@ void StartCaptureHotkey(INT mode) {
     
     g_captureMode = mode;
     
-    WNDCLASS wc = {0};
-    wc.lpfnWndProc = CaptureWndProc;
-    wc.hInstance = GetModuleHandleW(NULL);
-    wc.lpszClassName = L"ScreenCoverCapture";
-    wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
-    RegisterClassW(&wc);
+    // 只注册一次窗口类
+    if (!g_captureClassRegistered) {
+        WNDCLASS wc = {0};
+        wc.lpfnWndProc = CaptureWndProc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.lpszClassName = L"ScreenCoverCapture";
+        wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+        RegisterClassW(&wc);
+        g_captureClassRegistered = TRUE;
+    }
     
     LPCWSTR title = L"设置热键";
     if (mode == 0) title = L"设置黑屏热键";
